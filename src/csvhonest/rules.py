@@ -256,9 +256,11 @@ def rule_int_precision_loss(stats: ColumnStats) -> List[Finding]:
                 message=(
                     f"{count} integer value(s) in column '{stats.name}' exceed "
                     f"int64 range; pandas silently switches dtype (uint64, or "
-                    f"object strings when signs mix) and polars switches to "
-                    f"Int128, so downstream code expecting a fixed-width int "
-                    f"gets a different type or wrong comparisons."
+                    f"text - object in pandas 2, str in pandas 3 - when signs "
+                    f"mix), polars 2.x switches to Int128, and polars 1.x "
+                    f"raises on the overflow, so downstream code expecting a "
+                    f"fixed-width int gets a different type or wrong "
+                    f"comparisons."
                 ),
                 suggestion=(
                     f"Load as text (dtype=str / schema String) if these are IDs."
