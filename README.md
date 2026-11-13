@@ -86,7 +86,7 @@ for finding in result.findings:
 | `LEADING_ZERO_LOSS` | high | `02139` loads as `2139` when the column infers numeric (pandas, polars) |
 | `PADDED_LEADING_ZERO_LOSS` | high | whitespace-padded numbers with leading zeros: pandas trims and parses them, losing zeros and padding; polars keeps the original strings |
 | `NA_COLLISION` | high | `"NA"`, `"None"`, `"null"` become NaN (pandas defaults) |
-| `INT64_OVERFLOW` | high | pandas switches to uint64/object, polars to Int128 |
+| `INT64_OVERFLOW` | high | pandas switches to uint64, or text (object in pandas 2, str in pandas 3) when signs mix; polars 2.x to Int128 (1.x raises) |
 | `FLOAT64_PRECISION_LOSS` | high | integers above 2^53 lose exactness under float64: mixed int/float columns (pandas, polars) or int columns with holes (pandas) |
 | `WHITESPACE_KEY_COLLISION` | high | `"WA"` and `"WA "` merge on any strip, collapsing distinct records |
 | `UNICODE_FORM_COLLISION` | high | visually identical strings in different normal forms load as separate keys |
