@@ -10,6 +10,12 @@ import pytest
 pd = pytest.importorskip("pandas")
 pl = pytest.importorskip("polars")
 
+# pandas 3 (PDEP-14 string inference) loads text columns as the new `str`
+# dtype; pandas 2 loads them as `object`. Both mean the column stayed text:
+# numeric inference was blocked and the values are the original strings.
+_PANDAS_MAJOR = int(pd.__version__.split(".")[0])
+PANDAS_TEXT_DTYPE = "str" if _PANDAS_MAJOR >= 3 else "object"
+
 
 def test_pandas_drops_leading_zeros():
     df = pd.read_csv(io.StringIO("zip\n02139\n00501\n"))
@@ -63,19 +69,32 @@ def test_sci_notation_infers_numeric_both():
 
 def test_thousands_separator_blocks_numeric_and_fix_works():
     df = pd.read_csv(io.StringIO('amt\n"1,234"\n42\n'))
-    assert str(df["amt"].dtype) == "object"
+    assert str(df["amt"].dtype) == PANDAS_TEXT_DTYPE
+    # consumer semantics: the values are the untouched strings, not numbers
+    assert df["amt"].tolist() == ["1,234", "42"]
     fixed = pd.read_csv(io.StringIO('amt\n"1,234"\n42\n'), thousands=",")
     assert fixed["amt"].tolist() == [1234, 42]
 
 
 def test_pandas_overflow_changes_dtype():
     assert str(pd.read_csv(io.StringIO("x\n9223372036854775808\n1\n"))["x"].dtype) == "uint64"
-    assert str(pd.read_csv(io.StringIO("x\n9223372036854775808\n-1\n"))["x"].dtype) == "object"
+    mixed = pd.read_csv(io.StringIO("x\n9223372036854775808\n-1\n"))
+    assert str(mixed["x"].dtype) == PANDAS_TEXT_DTYPE
+    # consumer semantics: the overflowing value survives as its string form
+    assert mixed["x"].tolist() == ["9223372036854775808", "-1"]
 
 
-def test_polars_overflow_uses_int128():
-    pf = pl.read_csv(io.StringIO("x\n9223372036854775808\n1\n"))
-    assert str(pf["x"].dtype) == "Int128"
+def test_polars_overflow_behavior():
+    # polars 2.x infers Int128 on int64 overflow; polars 1.x raises a loud
+    # ComputeError instead (no silent mutation). Both are version-pinned here.
+    if int(pl.__version__.split(".")[0]) >= 2:
+        pf = pl.read_csv(io.StringIO("x\n9223372036854775808\n1\n"))
+        assert str(pf["x"].dtype) == "Int128"
+        # consumer semantics: the overflowing integer survives exactly
+        assert pf["x"].to_list() == [9223372036854775808, 1]
+    else:
+        with pytest.raises(pl.exceptions.ComputeError):
+            pl.read_csv(io.StringIO("x\n9223372036854775808\n1\n"))
 
 
 def test_both_rename_duplicate_headers_silently():
