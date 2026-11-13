@@ -320,4 +320,4 @@ def scan_file(
         decode_errors=decode_errors,
         findings=findings,
         stats=stats,
-              )
+    )
