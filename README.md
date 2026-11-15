@@ -68,6 +68,22 @@ that actually changed, per distinct raw value (`'02139' -> 2139`,
 
 Exit code is 1 when a finding at or above `--fail-on` (default `high`)
 exists, so the check slots into a pipeline or pre-commit step.
+A requested verification that cannot load the file, read its raw comparison,
+or establish matching row/column shapes exits **2**, even if the static scan
+found no high-severity risks. It returns a verification error with no cell
+mutation claims, rather than comparing a potentially shifted prefix.
+
+Pandas verification skips unquoted ASCII space/tab-only physical lines at CSV
+record boundaries, including before the header. Quoted whitespace, embedded
+blank lines inside a multiline quoted cell, and space/tab delimiters remain
+data. Polars keeps its existing blank-record policy. This behavior was checked
+with pandas 2.3.3 and polars 2.0.0; it does not certify every future loader
+version or unusual parser configuration. Verification still uses each loader's
+normal header interpretation, even when the static scanner was told
+`--no-header`. Both reads should use a quiescent file: scan/load/comparison are
+separate reads, not an atomic snapshot. Matching shapes cannot detect every
+same-shape rewrite or every possible parser disagreement.
+
 
 From Python:
 
