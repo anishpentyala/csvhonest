@@ -102,7 +102,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             print(render_text(result, verifications))
             print()
-        worst = max(worst, exit_code(result, fail_on=args.fail_on))
+        worst = max(
+            worst,
+            2 if any(v.load_error for v in verifications) else 0,
+            exit_code(result, fail_on=args.fail_on),
+        )
     return worst
 
 

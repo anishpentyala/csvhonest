@@ -65,7 +65,7 @@ def render_verification_text(report: VerificationReport) -> str:
     lines: List[str] = []
     lines.append(f"Verified with {report.loader} (actual default load of this file)")
     if report.load_error:
-        lines.append(f"  LOAD FAILED: {report.load_error}")
+        lines.append(f"  VERIFICATION FAILED: {report.load_error}")
         return "\n".join(lines)
     lines.append(
         f"  {report.loaded_rows} rows x {report.loaded_columns} columns loaded; "
