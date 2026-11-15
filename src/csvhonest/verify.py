@@ -87,6 +87,38 @@ def _classify(raw: str, loaded_repr: Optional[str], loaded_value) -> Optional[st
     return "value_changed"
 
 
+def _raw_records(fh, dialect, skips_blank_lines):
+    """Skip pandas blank physical lines only at CSV record boundaries.
+
+    Looking at parsed cell values loses quotes: an unquoted space-only line
+    is blank for pandas, but a quoted space or a line inside a multiline cell
+    is data. Space/tab delimiters themselves also make a line into fields.
+    """
+    at_start = True
+
+    def lines():
+        nonlocal at_start
+        for line in fh:
+            if (
+                skips_blank_lines
+                and at_start
+                and not line.strip(" \t\r\n")
+                and dialect.delimiter not in line
+                and dialect.quotechar not in line
+            ):
+                continue
+            at_start = False
+            yield line
+
+    reader = csv.reader(lines(), delimiter=dialect.delimiter, quotechar=dialect.quotechar)
+    while True:
+        at_start = True
+        row = next(reader, None)
+        if row is None:
+            return
+        yield row
+
+
 def _verify_generic(
     result: ScanResult,
     loader_name: str,
@@ -100,10 +132,11 @@ def _verify_generic(
     loaded_columns: per loaded column (name, dtype, values list). Missing
     values are represented by whatever is_missing detects.
 
-    Alignment replicates the loader's own view exactly, otherwise the diff
+    Alignment follows the loader's blank-record policy, otherwise the diff
     fabricates mutations: both pandas and polars treat the first row as the
     header by default, and pandas skips blank lines while polars keeps them
-    as null rows (verified against pandas 2.3.3 / polars 2.0.0).
+    as null rows (verified against pandas 2.3.3 / polars 2.0.0). A remaining
+    shape mismatch refuses all cell claims instead of comparing a shifted prefix.
     """
     report = VerificationReport(
         loader=loader_name,
@@ -114,31 +147,36 @@ def _verify_generic(
     from .scan import open_text
 
     raw_rows: List[List[str]] = []
-    with open_text(result.path, result.encoding) as fh:
-        reader = csv.reader(
-            fh, delimiter=result.dialect.delimiter, quotechar=result.dialect.quotechar
-        )
-        rows = iter(reader)
-        next(rows, None)  # row 1 is the loader's header, not data
-        while len(raw_rows) < max_rows:
-            row = next(rows, None)
-            if row is None:
-                break
-            if not row:
-                if skips_blank_lines:
-                    continue  # pandas skip_blank_lines=True
-                row = [""]  # polars keeps a blank line as a null row
-            raw_rows.append(row)
+    try:
+        with open_text(result.path, result.encoding) as fh:
+            rows = iter(_raw_records(fh, result.dialect, skips_blank_lines))
+            header = next(rows, [])  # first loader-visible record, not physical line
+            while len(raw_rows) < max_rows:
+                row = next(rows, None)
+                if row is None:
+                    break
+                if not row:
+                    row = [""]  # polars retains an empty physical line as a null row
+                raw_rows.append(row)
+    except (OSError, UnicodeError, csv.Error) as exc:
+        report.load_error = "raw comparison could not be completed: " + str(exc)
+        return report
 
-    n = min(len(raw_rows), report.loaded_rows)
-    if len(raw_rows) != report.loaded_rows:
+    n = len(raw_rows)
+    if (
+        n != report.loaded_rows
+        or len(header) != report.loaded_columns
+        or any(len(row) > report.loaded_columns for row in raw_rows)
+        or any(len(values) != n for _, _, values in loaded_columns)
+    ):
         report.alignment_note = (
-            f"loader produced {report.loaded_rows} row(s) vs "
-            f"{len(raw_rows)} raw data row(s); compared the first {n}."
+            f"loader produced {report.loaded_rows} row(s) x {report.loaded_columns} column(s); "
+            f"raw comparison has {n} data row(s) and {len(header)} header field(s). "
+            "No cells compared because alignment is unverified."
         )
+        report.load_error = "cannot verify row/column alignment"
+        return report
     for idx, (name, dtype, values) in enumerate(loaded_columns):
-        if idx >= len(result.stats):
-            break
         col = ColumnVerification(column=name, index=idx, loaded_dtype=dtype)
         # distinct raw -> Counter of outcomes
         outcomes: Dict[str, Counter] = {}
