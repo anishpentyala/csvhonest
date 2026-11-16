@@ -87,9 +87,21 @@ data. Polars keeps its existing blank-record policy. This behavior was checked
 with pandas 2.3.3 and polars 2.0.0; it does not certify every future loader
 version or unusual parser configuration. Verification still uses each loader's
 normal header interpretation, even when the static scanner was told
-`--no-header`. Both reads should use a quiescent file: scan/load/comparison are
-separate reads, not an atomic snapshot. Matching shapes cannot detect every
-same-shape rewrite or every possible parser disagreement.
+`--no-header`. With `--verify`, the CLI first copies the full input into a private temporary
+directory. Static scanning and both loaders then use that capture; a rewrite or
+deletion of the original after capture cannot fabricate mutation evidence.
+The Python `verify_with_pandas` / `verify_with_polars` functions each capture
+their input before loading and comparing. They do not retroactively make an
+earlier independent `scan_file()` call part of that capture.
+
+Capturing is a streaming disk copy, not a filesystem transaction: a writer can
+still change bytes while the copy is in progress. All comparisons describe the
+captured bytes, not a guaranteed point-in-time version of a concurrently written
+file. Verification copies the complete input even with `--max-rows`; temporary
+disk space can reach twice its size because a CLI capture and one verifier
+capture coexist. Files are removed on success or failure. Without `--verify`,
+static scanning keeps its existing streaming path. Matching shapes still cannot
+detect every possible parser disagreement.
 
 
 From Python:
