@@ -66,6 +66,13 @@ loads the file with the installed loader's defaults and reports the cells
 that actually changed, per distinct raw value (`'02139' -> 2139`,
 `'NA' -> <missing>`), plus the dtype each column landed on.
 
+Numeric verification compares the exact source decimal spelling to the displayed
+loaded number. A lost digit or nonzero value underflowing to zero is a
+`value_changed`, even when the source uses a decimal point or exponent.
+`1e2 -> 100` remains `form_changed`; ordinary `0.1` is not flagged for the
+binary float's internal expansion. This is a comparison of displayed numeric
+values, not a bit-exact floating-point audit or a guarantee for every loader.
+
 Exit code is 1 when a finding at or above `--fail-on` (default `high`)
 exists, so the check slots into a pipeline or pre-commit step.
 A requested verification that cannot load the file, read its raw comparison,

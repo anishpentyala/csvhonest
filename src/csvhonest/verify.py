@@ -13,13 +13,14 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
 from .dialect import DialectInfo, EncodingInfo
 from .scan import ScanResult
 
 _SAMPLE_CAP = 5
-_INT_RE = re.compile(r"^[+-]?\d+$")
+_ZERO_LITERAL_RE = re.compile(r"[+-]?(?:0+(?:\.0*)?|\.0+)(?:[eE][+-]?[0-9]+)?\Z")
 
 
 @dataclass
@@ -61,29 +62,23 @@ def _classify(raw: str, loaded_repr: Optional[str], loaded_value) -> Optional[st
         return "became_missing"
     if loaded_repr == raw:
         return None
-    # Numeric comparison under different string form: 02139 -> 2139,
-    # 1E2 -> 100.0. Integers are compared exactly (not as floats) so
-    # float64 precision loss shows as a value change, not a form change.
-    if _INT_RE.match(raw) and isinstance(loaded_value, (int, float)):
-        try:
-            exact = int(loaded_value)
-        except (TypeError, ValueError, OverflowError):
-            return "value_changed"
-        if int(raw) == exact:  # same integer, only the string form differs
+    # Compare decimal spellings without first rounding the source through
+    # float(). That would turn genuine precision loss/underflow into an
+    # apparent formatting change. Use the loaded display, not its exact
+    # binary expansion: ordinary 0.1 must not become a corruption claim.
+    if isinstance(loaded_value, (int, float)):
+        # Zero stays zero even when its exponent exceeds Decimal's supported
+        # range. Validate the spelling without converting/expanding the exponent.
+        if loaded_value == 0 and _ZERO_LITERAL_RE.fullmatch(raw.strip()):
             return "form_changed"
-        return "value_changed"
-    try:
-        raw_num = float(raw)
-    except ValueError:
-        raw_num = None
-    if raw_num is not None and isinstance(loaded_value, (int, float)):
         try:
-            loaded_num = float(loaded_value)
-        except (TypeError, ValueError):
-            return "value_changed"
-        if raw_num == loaded_num:
-            return "form_changed"
-        return "value_changed"
+            if Decimal(raw) == Decimal(loaded_repr):
+                return "form_changed"
+        except (InvalidOperation, ValueError):
+            # NaNs and unsupported exponent spellings cannot establish
+            # numeric equality. Decimal construction/comparison does not
+            # expand a huge exponent into a huge integer or decimal string.
+            pass
     return "value_changed"
 
 
