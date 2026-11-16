@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from typing import List, Optional
 
 from .report import exit_code, render_json, render_text
 from .scan import DEFAULT_DISTINCT_CAP, DEFAULT_MAX_ROWS, scan_file
+from .snapshot import captured_path
 from .verify import VERIFIERS
 
 
@@ -80,23 +82,29 @@ def main(argv: Optional[List[str]] = None) -> int:
     worst = 0
     for path in args.files:
         try:
-            result = scan_file(
-                path,
-                max_rows=args.max_rows,
-                distinct_cap=args.distinct_cap,
-                encoding=args.encoding,
-                delimiter=args.delimiter,
-                has_header=args.has_header,
-            )
+            # One capture covers static detection and both loader comparisons.
+            with captured_path(path, enabled=bool(args.verify)) as input_path:
+                result = scan_file(
+                    input_path,
+                    max_rows=args.max_rows,
+                    distinct_cap=args.distinct_cap,
+                    encoding=args.encoding,
+                    delimiter=args.delimiter,
+                    has_header=args.has_header,
+                )
+                verifications = []
+                if args.verify:
+                    names = ("pandas", "polars") if args.verify == "both" else (args.verify,)
+                    for name in names:
+                        report = VERIFIERS[name](result, args.max_rows)
+                        if report.load_error:
+                            report.load_error = report.load_error.replace(input_path, str(path))
+                        verifications.append(report)
+                result = replace(result, path=path)
         except OSError as exc:
             print(f"csvhonest: cannot read {path}: {exc}", file=sys.stderr)
             worst = max(worst, 2)
             continue
-        verifications = []
-        if args.verify:
-            names = ("pandas", "polars") if args.verify == "both" else (args.verify,)
-            for name in names:
-                verifications.append(VERIFIERS[name](result, args.max_rows))
         if args.format == "json":
             print(render_json(result, verifications))
         else:
