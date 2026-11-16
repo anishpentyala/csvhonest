@@ -12,12 +12,13 @@ import csv
 import math
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
 from .dialect import DialectInfo, EncodingInfo
 from .scan import ScanResult
+from .snapshot import captured_path
 
 _SAMPLE_CAP = 5
 _ZERO_LITERAL_RE = re.compile(r"[+-]?(?:0+(?:\.0*)?|\.0+)(?:[eE][+-]?[0-9]+)?\Z")
@@ -217,7 +218,7 @@ def _render(value) -> str:
     return str(value)
 
 
-def verify_with_pandas(result: ScanResult, max_rows: int) -> VerificationReport:
+def _verify_with_pandas(result: ScanResult, max_rows: int) -> VerificationReport:
     try:
         import pandas as pd
     except ImportError:
@@ -251,7 +252,7 @@ def verify_with_pandas(result: ScanResult, max_rows: int) -> VerificationReport:
     )
 
 
-def verify_with_polars(result: ScanResult, max_rows: int) -> VerificationReport:
+def _verify_with_polars(result: ScanResult, max_rows: int) -> VerificationReport:
     try:
         import polars as pl
     except ImportError:
@@ -285,6 +286,30 @@ def verify_with_polars(result: ScanResult, max_rows: int) -> VerificationReport:
         max_rows,
         skips_blank_lines=False,
     )
+
+
+def _captured_verify(result, max_rows, loader, verify):
+    try:
+        with captured_path(result.path) as path:
+            report = verify(replace(result, path=path), max_rows)
+            if report.load_error:
+                report.load_error = report.load_error.replace(path, str(result.path))
+            return report
+    except OSError as exc:
+        return VerificationReport(
+            loader=loader, loaded_rows=0, loaded_columns=0,
+            load_error="input capture could not be completed: " + str(exc),
+        )
+
+
+def verify_with_pandas(result: ScanResult, max_rows: int) -> VerificationReport:
+    """Load and compare the same private capture of the source bytes."""
+    return _captured_verify(result, max_rows, "pandas", _verify_with_pandas)
+
+
+def verify_with_polars(result: ScanResult, max_rows: int) -> VerificationReport:
+    """Load and compare the same private capture of the source bytes."""
+    return _captured_verify(result, max_rows, "polars", _verify_with_polars)
 
 
 VERIFIERS = {"pandas": verify_with_pandas, "polars": verify_with_polars}
