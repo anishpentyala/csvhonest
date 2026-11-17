@@ -2,54 +2,79 @@
 
 **Audit what your CSV loader will silently change - before you load it.**
 
-`pd.read_csv` and `pl.read_csv` do not show you the values they mutate on
-the way in. They drop leading zeros from ZIP codes and IDs, turn the
-strings `"NA"`, `"None"`, `"null"` into missing values (even when they are
-real data, like Namibia's country code), coerce integer columns with holes
-to float64 (silently corrupting integers above 2^53), rename duplicate
-headers, and let whitespace or Unicode lookalikes split your keys.
-csvhonest reads the raw text and tells you exactly which values change,
-under which loader's defaults, with the fix for each one.
+A CSV can look right in a text editor and change when pandas reads it. Catch lost ZIP-code zeros, a literal `NA` becoming missing, or an ID rounding before those values reach your analysis.
 
-```
-$ csvhonest orders.csv
-csvhonest: orders.csv
-  4 data rows x 6 columns, encoding utf-8, delimiter ','
-  4 high, 2 medium, 1 low finding(s)
+## Try it in 60 seconds
 
-  [HIGH] LEADING_ZERO_LOSS (column 'zip'; affects: pandas, polars)
-        2 value(s) in column 'zip' have leading zeros and every value looks
-        numeric, so a default load parses them as integers and the zeros are
-        gone (e.g. ZIP codes, IDs).
-        examples: 02139, 00501
-        fix: Load the column as text: pandas dtype={'zip': str}, polars
-        schema_overrides={'zip': pl.String}.
-  ...
+Install the versioned source release (Python 3.9+, Git required):
 
-Suggested load arguments
-------------------------
-pandas:
-  pd.read_csv(path,
-    dtype={'zip': 'str'},
-    keep_default_na=False,
-    na_values=[''],
-  )
+```sh
+python -m pip install "git+https://github.com/anishpentyala/csvhonest.git@v0.1.3"
 ```
 
-Every behavioral claim is verified against real pandas and polars releases
-in `tests/test_loader_claims.py`, so findings name the loaders they
-actually affect instead of guessing about a generic parser.
+Create this **synthetic** sample as `surprises.csv`:
 
-## Install
-
+```csv
+zip,country,customer_id
+02139,NA,9007199254740993
+00501,US,
+10001,GB,42
 ```
-pip install git+https://github.com/anishpentyala/csvhonest
+
+Then run:
+
+```sh
+csvhonest surprises.csv
 ```
 
-Or from source: `pip install .` (pure standard library, Python 3.9+).
-Building from source needs a current pip/setuptools (setuptools >= 68);
-on an old system Python, run `python -m pip install --upgrade pip` first
-or the wheel builds without its metadata and console script.
+The report flags three high-severity risks: `LEADING_ZERO_LOSS`, `NA_COLLISION`, and `FLOAT64_PRECISION_LOSS`. It exits **1 because it found risks**, not because installation failed. The same input is bundled as [`examples/import-surprises.csv`](examples/import-surprises.csv).
+
+Want to see what actually changes? Install pandas and verify this file with its default reader:
+
+```sh
+python -m pip install "pandas==2.3.3"
+csvhonest surprises.csv --verify pandas
+```
+
+The verification reports four changed cells:
+
+| Raw CSV text | pandas 2.3.3 default load | Why it matters |
+| --- | --- | --- |
+| `02139` | `2139` | ZIP-code zeros disappear |
+| `00501` | `501` | Another ZIP code changes form |
+| `NA` | missing | A literal country code is lost |
+| `9007199254740993` | `9007199254740992` | An ID changes value after float conversion |
+
+These are results from this tiny synthetic file, not a user benchmark. The missing ID makes pandas infer a floating-point column. Static scanning reports risks; `--verify pandas` loads and compares the actual file using the pandas version installed in your environment. Other inputs, loader versions and options can behave differently. Verification uses temporary local disk, as described below.
+
+## When to use it
+
+Use csvhonest before loading unfamiliar CSV exports, or in a pipeline that should stop on a risky import. It runs locally and the static scan needs only Python's standard library. Optional verification needs the loader being checked.
+
+If you already know the schema, **explicit loader options are the first fix**, not another tool. For this sample, preserving every cell as text is as simple as:
+
+```python
+import pandas as pd
+
+frame = pd.read_csv("surprises.csv", dtype=str, keep_default_na=False)
+```
+
+That is appropriate here because ZIP codes, country codes and customer IDs are text. It is not a universal loading policy: real numeric columns and missing values need a deliberate schema. csvhonest helps identify where to make that choice; it does not decide the intended meaning of your data.
+
+## Install options
+
+The pinned Git command above installs source without a manual clone. There is no PyPI release under the name `csvhonest`.
+
+From a source checkout:
+
+```sh
+git clone https://github.com/anishpentyala/csvhonest.git
+cd csvhonest
+python -m pip install .
+csvhonest examples/import-surprises.csv
+```
+
+Building needs setuptools >= 68. If an older pip cannot build the package, update pip in your virtual environment first. No pandas or Polars dependency is required for a static scan.
 
 ## Use
 
