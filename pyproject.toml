@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csvhonest"
-version = "0.1.2"
+version = "0.1.3"
 description = "Audit what your CSV loader will silently change before you load it."
 readme = "README.md"
 requires-python = ">=3.9"
