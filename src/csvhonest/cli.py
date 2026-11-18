@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--verify",
-        choices=("pandas", "polars", "both"),
+        choices=("pandas", "polars", "both", "duckdb"),
         help=(
             "also run the installed loader with defaults and diff raw vs "
             "loaded values, confirming mutations on this exact file"
@@ -96,7 +96,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if args.verify:
                     names = ("pandas", "polars") if args.verify == "both" else (args.verify,)
                     for name in names:
-                        report = VERIFIERS[name](result, args.max_rows)
+                        if name == "duckdb":
+                            from .duckdb_verify import verify_with_duckdb
+                            report = verify_with_duckdb(result, args.max_rows)
+                        else:
+                            report = VERIFIERS[name](result, args.max_rows)
                         if report.load_error:
                             report.load_error = report.load_error.replace(input_path, str(path))
                         verifications.append(report)
