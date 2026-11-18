@@ -10,6 +10,6 @@ keys that collapse when stripped or Unicode-normalized.
 from .scan import scan_file, ScanResult
 from .report import render_text, render_json
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 __all__ = ["scan_file", "ScanResult", "render_text", "render_json", "__version__"]
