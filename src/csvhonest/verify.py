@@ -98,15 +98,18 @@ def _raw_records(fh, dialect, skips_blank_lines):
             if (
                 skips_blank_lines
                 and at_start
-                and not line.strip(" \t\r\n")
+                and not line.strip("\r\n" if skips_blank_lines == "empty" else " \t\r\n")
                 and dialect.delimiter not in line
-                and dialect.quotechar not in line
+                and (not dialect.quotechar or dialect.quotechar not in line)
             ):
                 continue
             at_start = False
             yield line
 
-    reader = csv.reader(lines(), delimiter=dialect.delimiter, quotechar=dialect.quotechar)
+    reader = csv.reader(
+        lines(), delimiter=dialect.delimiter, quotechar=dialect.quotechar,
+        quoting=csv.QUOTE_MINIMAL if dialect.quotechar else csv.QUOTE_NONE,
+    )
     while True:
         at_start = True
         row = next(reader, None)
