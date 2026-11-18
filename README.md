@@ -9,7 +9,7 @@ A CSV can look right in a text editor and change when pandas reads it. Catch los
 Install the versioned source release (Python 3.9+, Git required):
 
 ```sh
-python -m pip install "git+https://github.com/anishpentyala/csvhonest.git@v0.1.3"
+python -m pip install "git+https://github.com/anishpentyala/csvhonest.git@v0.1.4"
 ```
 
 Create this **synthetic** sample as `surprises.csv`:
@@ -139,6 +139,41 @@ for finding in result.findings:
     print(finding.severity, finding.code, finding.message)
 ```
 
+## Optional DuckDB verification
+
+```sh
+python -m pip install "duckdb==1.5.6"
+csvhonest data.csv --verify duckdb
+```
+
+`--verify duckdb` compares raw cells with the installed DuckDB default CSV
+reader in a temporary in-memory database. DuckDB is optional and is imported
+only when selected. `--verify both` still means pandas plus Polars. Static-risk
+profiles remain pandas and Polars; this release adds no DuckDB static profile.
+
+Tested DuckDB versions: **1.3.2, 1.4.4, and 1.5.6**. Other versions are unverified;
+this is not a minimum-version or all-versions compatibility claim. Synthetic
+late-sample tests cover decimal rounding, lost zeros, small values becoming
+zero, and timestamps becoming dates. These are reproduction tests, not user
+trials or adoption results. DuckDB preserves the leading zeros and literal
+`NA` in the small pandas example above; do not apply its pandas results to DuckDB.
+
+Scope is deliberately narrow: UTF-8 (including BOM), a detected header,
+a one-character delimiter, no skipped preamble or comments, and conventional
+quoting. Unsupported encodings or layouts produce a verification error rather
+than cell claims. This is not a custom SQL, user-schema, or post-ingest verifier.
+DuckDB may infer a different table shape, including treating a ragged comma
+file as a single text column. No mutations does not certify the intended schema.
+Duplicate-header column names are DuckDB's renamed names, not the raw headers.
+
+The adapter copies the complete captured input to a fixed temporary filename
+so glob characters in the original name are literal. The CLI capture and this
+adapter copy can coexist, requiring roughly **twice the full file size** in
+temporary disk space. Copies are removed on success or failure. `--max-rows`
+limits compared/fetched rows, not capture size or DuckDB's default sniffing
+work. A capped comparison cannot find mutations beyond its prefix. No memory,
+throughput, whole-file safety, or concurrent-writer transaction guarantee is made.
+
 ## What it checks
 
 | Code | Severity | What silently happens |
@@ -192,7 +227,7 @@ for finding in result.findings:
   tests will say so. Findings about risks outside a default load carry
   `loaders: ["downstream-parse"]` instead of naming a loader.
 - **Static findings are risks; `--verify` is proof.** The default scan
-  infers what loader defaults would do. `--verify pandas|polars|both`
+  infers what loader defaults would do. `--verify pandas|polars|both|duckdb`
   actually loads the file and diffs every cell against the raw text.
 - **The distinct-value caps bound memory, not correctness.** Past
   `--distinct-cap` (default 100k entries, 64 MB of stored values) a
